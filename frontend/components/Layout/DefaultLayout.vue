@@ -74,6 +74,9 @@
           <Nuxt />
         </v-scroll-x-transition>
       </v-main>
+      <AppBottomNav :top-link="topLinks">
+
+      </AppBottomNav>
     </v-app>
   </template>
 
@@ -82,6 +85,7 @@
   import { useLoggedInState } from "~/composables/use-logged-in-state";
   import AppHeader from "@/components/Layout/LayoutParts/AppHeader.vue";
   import AppSidebar from "@/components/Layout/LayoutParts/AppSidebar.vue";
+  import AppBottomNav from "@/components/Layout/LayoutParts/AppBottomNav.vue";
   import { SidebarLinks } from "~/types/application-types";
   import LanguageDialog from "~/components/global/LanguageDialog.vue";
   import TheSnackbar from "@/components/Layout/LayoutParts/TheSnackbar.vue";
@@ -89,7 +93,7 @@
   import { useToggleDarkMode } from "~/composables/use-utils";
 
   export default defineComponent({
-    components: { AppHeader, AppSidebar, LanguageDialog, TheSnackbar },
+    components: { AppHeader, AppSidebar, AppBottomNav, LanguageDialog, TheSnackbar },
     setup() {
       const { $globals, $auth, $vuetify, i18n } = useContext();
       const { isOwnGroup } = useLoggedInState();

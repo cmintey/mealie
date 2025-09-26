@@ -9,6 +9,7 @@ from mealie.core.exceptions import MissingClaimException
 from mealie.core.security.providers.auth_provider import AuthProvider
 from mealie.db.models.users.users import AuthMethod
 from mealie.repos.all_repositories import get_repositories
+from mealie.schema.user.user import PrivateUser
 
 
 class OpenIDProvider(AuthProvider[UserInfo]):
@@ -48,8 +49,6 @@ class OpenIDProvider(AuthProvider[UserInfo]):
                 self._logger.error("[OIDC] Required claim '%s' is empty", claim)
                 raise MissingClaimException()
 
-        repos = get_repositories(self.session, group_id=None, household_id=None)
-
         is_admin = False
         if settings.OIDC_REQUIRES_GROUP_CLAIM:
             # We explicitly allow the groups claim to be missing to account for the behaviour of some IdPs:
@@ -74,53 +73,87 @@ class OpenIDProvider(AuthProvider[UserInfo]):
                 )
                 return None
 
-        user = self.try_get_user(claims.get(settings.OIDC_USER_CLAIM))
+        user = self.try_find_user_by_oauth_id()
+        if not user:
+            self._logger.debug("[OIDC] Looking for user via '%s'", settings.OIDC_USER_CLAIM)
+            user = self.try_get_user(claims.get(settings.OIDC_USER_CLAIM))
+
         if not user:
             if not settings.OIDC_SIGNUP_ENABLED:
                 self._logger.debug("[OIDC] No user found. Not creating a new user - new user creation is disabled.")
                 return None
 
-            self._logger.debug("[OIDC] No user found. Creating new OIDC user.")
+            user = self.create_user(is_admin)
+            return self.get_access_token(user, settings.OIDC_REMEMBER_ME) if user else None
 
-            try:
-                # some IdPs don't provide a username (looking at you Google), so if we don't have the claim,
-                # we'll create the user with whatever the USER_CLAIM is (default email)
-                username = claims.get(
-                    "preferred_username", claims.get("username", claims.get(settings.OIDC_USER_CLAIM))
-                )
-                user = repos.users.create(
-                    {
-                        "username": username,
-                        "password": "OIDC",
-                        "full_name": claims.get(settings.OIDC_NAME_CLAIM),
-                        "email": claims.get("email"),
-                        "admin": is_admin,
-                        "auth_method": AuthMethod.OIDC,
-                    }
-                )
-                self.session.commit()
+        self._logger.debug("[OIDC] Found user")
+        self.update_user_if_necessary(user, is_admin)
+        return self.get_access_token(user, settings.OIDC_REMEMBER_ME)
 
-            except Exception as e:
-                self._logger.error("[OIDC] Exception while creating user: %s", e)
-                return None
+    def try_find_user_by_oauth_id(self):
+        sub = self.data.get("sub")
+        self._logger.debug("[OIDC] Trying to find user via 'sub'")
+        repos = get_repositories(self.session, group_id=None, household_id=None)
+        return repos.users.get_one(sub, "oauth_id")
 
-            return self.get_access_token(user, settings.OIDC_REMEMBER_ME)  # type: ignore
+    def create_user(self, is_admin: bool):
+        self._logger.debug("[OIDC] No user found. Creating new OIDC user.")
+        claims = self.data
+        repos = get_repositories(self.session, group_id=None, household_id=None)
+        settings = get_app_settings()
 
-        if user:
-            if settings.OIDC_ADMIN_GROUP and user.admin != is_admin:
-                self._logger.debug("[OIDC] %s user as admin", "Setting" if is_admin else "Removing")
-                user.admin = is_admin
-                repos.users.update(user.id, user)
-            return self.get_access_token(user, settings.OIDC_REMEMBER_ME)
+        user = None
+        try:
+            # some IdPs don't provide a username (looking at you Google), so if we don't have the claim,
+            # we'll create the user with whatever the USER_CLAIM is (default email)
+            username = claims.get("preferred_username", claims.get("username", claims.get(settings.OIDC_USER_CLAIM)))
+            user = repos.users.create(
+                {
+                    "username": username,
+                    "password": "OIDC",
+                    "full_name": claims.get(settings.OIDC_NAME_CLAIM),
+                    "email": claims.get("email"),
+                    "admin": is_admin,
+                    "auth_method": AuthMethod.OIDC,
+                    "oauth_id": claims.get("sub"),
+                }
+            )
+            self.session.commit()
+        except Exception as e:
+            self._logger.error("[OIDC] Exception while creating user: %s", e)
 
-        self._logger.warning("[OIDC] Found user but their AuthMethod does not match OIDC")
-        return None
+        return user
+
+    def update_user_if_necessary(self, user: PrivateUser, is_admin: bool):
+        settings = get_app_settings()
+        claims = self.data
+
+        update = False
+        if settings.OIDC_ADMIN_GROUP and user.admin != is_admin:
+            self._logger.debug("[OIDC] %s user as admin", "Setting" if is_admin else "Removing")
+            user.admin = is_admin
+            update = True
+
+        if not user.oauth_id:
+            user.oauth_id = claims.get("sub")
+            update = True
+
+        email = claims.get("email")
+        name = claims.get(settings.OIDC_NAME_CLAIM)
+        if user.full_name != name or user.email != email:
+            user.full_name = name
+            user.email = email
+            update = True
+
+        if update:
+            repos = get_repositories(self.session, group_id=None, household_id=None)
+            repos.users.update(user.id, user)
 
     @property
     def required_claims(self):
         settings = get_app_settings()
 
-        claims = {settings.OIDC_NAME_CLAIM, "email", settings.OIDC_USER_CLAIM}
+        claims = {"sub", settings.OIDC_NAME_CLAIM, "email", settings.OIDC_USER_CLAIM}
         if settings.OIDC_REQUIRES_GROUP_CLAIM and not self.use_default_groups:
             claims.add(settings.OIDC_GROUPS_CLAIM)
         return claims

@@ -199,21 +199,23 @@ def _unique_user(session: Session, api_client: TestClient):
     if not isinstance(household_id, UUID):
         household_id = UUID(household_id)
 
+    repos = get_repositories(session, group_id=group_id, household_id=household_id)
+    user_out = utils.TestUser(
+        _group_id=group_id,
+        _household_id=household_id,
+        user_id=user_id,
+        email=user_data.get("email"),
+        username=user_data.get("username"),
+        full_name=user_data.get("fullName"),
+        password=registration.password,
+        token=token,
+        repos=repos,
+    )
     try:
-        yield utils.TestUser(
-            _group_id=group_id,
-            _household_id=household_id,
-            user_id=user_id,
-            email=user_data.get("email"),
-            username=user_data.get("username"),
-            full_name=user_data.get("fullName"),
-            password=registration.password,
-            token=token,
-            repos=get_repositories(session, group_id=group_id, household_id=household_id),
-        )
+        yield user_out
     finally:
-        # TODO: Delete User after test
-        pass
+        # delete
+        repos.users.delete(user_out.user_id)
 
 
 @fixture(scope="function")

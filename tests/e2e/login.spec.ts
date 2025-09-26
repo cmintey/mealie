@@ -46,10 +46,10 @@ test('ldap admin login', async ({ page }) => {
 });
 
 test('oidc initial login', async ({ page }) => {
-    const username = "testUser"
+    const username = randomString()
     const name = "Test User"
     const claims = {
-        "sub": username,
+        "sub": randomString(),
         "email": `${username}@example.com`,
         "preferred_username": username,
         "name": name,
@@ -67,11 +67,11 @@ test('oidc initial login', async ({ page }) => {
     await expect(page.getByRole('link', { name: 'Admin Settings' })).not.toBeVisible();
 });
 
-test('oidc login with user not in propery group', async ({ page }) => {
-    const username = "testUserNoGroup"
+test('oidc login with user not in proper group', async ({ page }) => {
+    const username = randomString()
     const name = "Test User No Group"
     const claims = {
-        "sub": username,
+        "sub": randomString(),
         "email": `${username}@example.com`,
         "preferred_username": username,
         "name": name,
@@ -88,10 +88,10 @@ test('oidc login with user not in propery group', async ({ page }) => {
 });
 
 test('oidc sequential login', async ({ page }) => {
-    const username = "testUser2"
+    const username = randomString()
     const name = "Test User 2"
     const claims = {
-        "sub": username,
+        "sub": randomString(),
         "email": `${username}@example.com`,
         "preferred_username": username,
         "name": name,
@@ -116,10 +116,10 @@ test('oidc sequential login', async ({ page }) => {
 });
 
 test('settings page verify oidc', async ({ page }) => {
-    const username = "oidcUser"
+    const username = randomString()
     const name = "OIDC User"
     const claims = {
-        "sub": username,
+        "sub": randomString(),
         "email": `${username}@example.com`,
         "preferred_username": username,
         "name": name,
@@ -151,10 +151,10 @@ test('settings page verify oidc', async ({ page }) => {
 });
 
 test('oidc admin user', async ({ page }) => {
-    const username = "oidcAdmin"
+    const username = randomString()
     const name = "OIDC Admin"
     const claims = {
-        "sub": username,
+        "sub": randomString(),
         "email": `${username}@example.com`,
         "preferred_username": username,
         "name": name,

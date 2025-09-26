@@ -120,6 +120,9 @@ class UserBase(MealieModel):
     can_manage: bool = False
     can_manage_household: bool = False
     can_organize: bool = False
+
+    oauth_id: str | None = None
+
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={

@@ -74,6 +74,8 @@ class User(SqlAlchemyBase, BaseMixins):
     can_invite: Mapped[bool | None] = mapped_column(Boolean, default=False)
     can_organize: Mapped[bool | None] = mapped_column(Boolean, default=False)
 
+    oauth_id: Mapped[str | None] = mapped_column(String, default=None, nullable=True, unique=True, index=True)
+
     sp_args = {
         "back_populates": "user",
         "cascade": "all, delete, delete-orphan",

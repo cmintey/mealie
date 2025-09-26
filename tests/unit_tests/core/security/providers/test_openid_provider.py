@@ -27,6 +27,7 @@ def test_empty_claims():
 
 def test_empty_required_claims():
     data = {
+        "sub": random_string(),
         "preferred_username": "dude1",
         "email": "",  # Empty required claim
         "name": "Firstname Lastname",
@@ -39,7 +40,7 @@ def test_empty_required_claims():
 
 
 def test_missing_claims():
-    data = {"preferred_username": "dude1"}
+    data = {"sub": "unique_id", "preferred_username": "dude1"}
     auth_provider = OpenIDProvider(None, data)
 
     with pytest.raises(MissingClaimException):
@@ -51,6 +52,7 @@ def test_missing_groups_claim(monkeypatch: MonkeyPatch):
     get_app_settings.cache_clear()
 
     data = {
+        "sub": random_string(),
         "preferred_username": "dude1",
         "email": "email@email.com",
         "name": "Firstname Lastname",
@@ -66,6 +68,7 @@ def test_missing_groups_claim_admin(monkeypatch: MonkeyPatch):
     get_app_settings.cache_clear()
 
     data = {
+        "sub": random_string(),
         "preferred_username": "dude1",
         "email": "email@email.com",
         "name": "Firstname Lastname",
@@ -81,6 +84,7 @@ def test_missing_groups_claim_with_default(monkeypatch: MonkeyPatch):
     get_app_settings.cache_clear()
 
     data = {
+        "sub": random_string(),
         "preferred_username": "dude1",
         "email": "email@email.com",
         "name": "Firstname Lastname",
@@ -90,16 +94,17 @@ def test_missing_groups_claim_with_default(monkeypatch: MonkeyPatch):
     assert auth_provider.authenticate() is None
 
 
-def test_missing_groups_claim_admin_group_with_default(monkeypatch: MonkeyPatch, unique_user: TestUser):
+def test_missing_groups_claim_admin_group_with_default(monkeypatch: MonkeyPatch, unique_user_fn_scoped: TestUser):
     monkeypatch.setenv("OIDC_ADMIN_GROUP", "mealie_admin")
     get_app_settings.cache_clear()
 
     data = {
+        "sub": random_string(),
         "preferred_username": "dude1",
-        "email": unique_user.email,
+        "email": unique_user_fn_scoped.email,
         "name": "Firstname Lastname",
     }
-    auth_provider = OpenIDProvider(unique_user.repos.session, data, True)
+    auth_provider = OpenIDProvider(unique_user_fn_scoped.repos.session, data, True)
 
     assert auth_provider.authenticate() is not None
 
@@ -109,6 +114,7 @@ def test_missing_user_group(monkeypatch: MonkeyPatch):
     get_app_settings.cache_clear()
 
     data = {
+        "sub": random_string(),
         "preferred_username": "dude1",
         "email": "email@email.com",
         "name": "Firstname Lastname",
@@ -119,35 +125,92 @@ def test_missing_user_group(monkeypatch: MonkeyPatch):
     assert auth_provider.authenticate() is None
 
 
-def test_has_user_group_existing_user(monkeypatch: MonkeyPatch, unique_user: TestUser):
+def test_has_user_group_existing_user(monkeypatch: MonkeyPatch, unique_user_fn_scoped: TestUser, session: Session):
     monkeypatch.setenv("OIDC_USER_GROUP", "mealie_user")
     get_app_settings.cache_clear()
 
     data = {
+        "sub": random_string(),
         "preferred_username": "dude1",
-        "email": unique_user.email,
+        "email": unique_user_fn_scoped.email,
         "name": "Firstname Lastname",
         "groups": ["mealie_user"],
     }
-    auth_provider = OpenIDProvider(unique_user.repos.session, data)
+    auth_provider = OpenIDProvider(unique_user_fn_scoped.repos.session, data)
 
     assert auth_provider.authenticate() is not None
 
+    db = get_repositories(session, group_id=None, household_id=None)
+    user = db.users.get_one(data["sub"], "oauth_id")
+    assert user is not None
+    assert unique_user_fn_scoped.user_id == user.id
+    assert not user.admin
+    assert user.oauth_id is not None
 
-def test_has_admin_group_existing_user(monkeypatch: MonkeyPatch, unique_user: TestUser):
+
+def test_has_admin_group_existing_user(monkeypatch: MonkeyPatch, unique_user_fn_scoped: TestUser, session: Session):
     monkeypatch.setenv("OIDC_USER_GROUP", "mealie_user")
     monkeypatch.setenv("OIDC_ADMIN_GROUP", "mealie_admin")
     get_app_settings.cache_clear()
 
     data = {
+        "sub": random_string(),
         "preferred_username": "dude1",
-        "email": unique_user.email,
+        "email": unique_user_fn_scoped.email,
         "name": "Firstname Lastname",
         "groups": ["mealie_admin"],
     }
-    auth_provider = OpenIDProvider(unique_user.repos.session, data)
+    auth_provider = OpenIDProvider(unique_user_fn_scoped.repos.session, data)
 
     assert auth_provider.authenticate() is not None
+
+    db = get_repositories(session, group_id=None, household_id=None)
+    user = db.users.get_one(data["sub"], "oauth_id")
+    assert user is not None
+    assert unique_user_fn_scoped.user_id == user.id
+    assert user.admin
+    assert user.oauth_id is not None
+
+
+def test_existing_oauth_user_data_sync(monkeypatch: MonkeyPatch, unique_user_fn_scoped: TestUser, session: Session):
+    monkeypatch.setenv("OIDC_USER_GROUP", "mealie_user")
+    monkeypatch.setenv("OIDC_ADMIN_GROUP", "mealie_admin")
+    get_app_settings.cache_clear()
+
+    data = {
+        "sub": random_string(),
+        "preferred_username": "dude1",
+        "email": unique_user_fn_scoped.email,
+        "name": "Firstname Lastname",
+        "groups": ["mealie_admin"],
+    }
+    auth_provider = OpenIDProvider(unique_user_fn_scoped.repos.session, data)
+
+    # do initial login to setup the oauth_id
+    assert auth_provider.authenticate() is not None
+
+    db = get_repositories(session, group_id=None, household_id=None)
+    user = db.users.get_one(data["sub"], "oauth_id")
+    assert user is not None
+    assert unique_user_fn_scoped.user_id == user.id
+    assert user.admin
+    assert user.oauth_id is not None
+
+    # login again with same oauth_id but different name and email
+    data["email"] = "new@email.com"
+    data["name"] = "updated name"
+    data["groups"] = ["mealie_user"]
+    auth_provider = OpenIDProvider(unique_user_fn_scoped.repos.session, data)
+    assert auth_provider.authenticate() is not None
+
+    db = get_repositories(session, group_id=None, household_id=None)
+    user = db.users.get_one(data["sub"], "oauth_id")
+    assert user is not None
+    assert unique_user_fn_scoped.user_id == user.id
+    assert not user.admin
+    assert user.oauth_id is not None
+    assert data["email"] == user.email
+    assert data["name"] == user.full_name
 
 
 def test_has_user_group_new_user(monkeypatch: MonkeyPatch, session: Session):
@@ -156,6 +219,7 @@ def test_has_user_group_new_user(monkeypatch: MonkeyPatch, session: Session):
     get_app_settings.cache_clear()
 
     data = {
+        "sub": random_string(),
         "preferred_username": "dude1",
         "email": "dude1@email.com",
         "name": "Firstname Lastname",
@@ -169,6 +233,7 @@ def test_has_user_group_new_user(monkeypatch: MonkeyPatch, session: Session):
     user = db.users.get_one("dude1", "username")
     assert user is not None
     assert not user.admin
+    assert user.oauth_id is not None
 
 
 def test_has_admin_group_new_user(monkeypatch: MonkeyPatch, session: Session):
@@ -177,6 +242,7 @@ def test_has_admin_group_new_user(monkeypatch: MonkeyPatch, session: Session):
     get_app_settings.cache_clear()
 
     data = {
+        "sub": random_string(),
         "preferred_username": "dude2",
         "email": "dude2@email.com",
         "name": "Firstname Lastname",
@@ -190,6 +256,7 @@ def test_has_admin_group_new_user(monkeypatch: MonkeyPatch, session: Session):
     user = db.users.get_one("dude2", "username")
     assert user is not None
     assert user.admin
+    assert user.oauth_id is not None
 
 
 @pytest.mark.parametrize("valid_group", [True, False])
@@ -206,6 +273,7 @@ def test_ldap_user_creation_invalid_group_or_household(
     get_app_settings.cache_clear()
 
     data = {
+        "sub": random_string(),
         "preferred_username": random_string(),
         "email": random_email(),
         "name": random_string(),
@@ -230,6 +298,7 @@ def test_ldap_user_creation_invalid_group_or_household(
 def test_claims_logging(caplog, session: Session):
     caplog.set_level(logging.DEBUG)
     data = {
+        "sub": random_string(),
         "preferred_username": "testuser",
         "email": "test@example.com",
         "name": "Test User",
